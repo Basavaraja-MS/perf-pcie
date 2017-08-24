@@ -19,6 +19,6 @@ clean:
 	rm -f *.o *.ko *.mod.c *.order *.symvers
 endif
 insmod:
-	sudo insmod hello.ko
+	sudo insmod perf-pcie.ko
 rmmod:
-	sudo rmmod hello
+	sudo rmmod perf-pcie
