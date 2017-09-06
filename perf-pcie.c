@@ -4,46 +4,35 @@
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
-#include <linux/slab.h>
 #include <linux/platform_device.h>
-
-#ifdef CPUHP
-#include <linux/cpuhotplug.h>
-#endif
-
 #include <linux/perf_event.h>
+#include <linux/slab.h>
 
-//#include "cpuhotplug.h"
 
 MODULE_LICENSE("Dual BSD/GPL");
 
-#define MMDC_FLAG_PROFILE_SEL	0x1
-#define MMDC_PRF_AXI_ID_CLEAR	0x0
+#define PCIE_NUM_COUNTERS			7
 
-#define PCIE_NUM_COUNTERS	7
-#define HRTIMER
+#define CDNS_PCIE_LOCAL_MGMT_ADDR 		0x00100000
 
-#ifdef CPUHP
-static enum cpuhp_state cpuhp_pcie_state;
-#endif
+#define TX_TLP_COUNT_EVENT 			0x0
+#define TX_TLP_PAYLOAD_COUNT_EVENT		0x1
+#define RX_TLP_COUNT_EVENT 			0x2
+#define RX_TLP_PAYLOAD_COUNT_EVENT 		0x3
+#define LCRC_ERROR_COUNT_EVENT			0x4
+#define ECC_CORRECTABLE_ERROR_COUNT_EVENT	0x5
+
+#define TX_TLP_COUNT_REG			0x028
+#define TX_TLP_PAYLOAD_COUNT_REG		0x02c
+#define RX_TLP_COUNT_REG			0x030
+#define RX_TLP_PAYLOAD_COUNT_REG		0x034
+#define LCRC_ERROR_COUNT_REG			0x214
+#define ECC_CORRECTABLE_ERROR_COUNT_REG		0x218
+
+
+
 static DEFINE_IDA(pcie_ida);
 
-struct fsl_pcie_devtype_data {
-	unsigned int flags;
-};
-
-static const struct fsl_pcie_devtype_data imx6q_data = {
-};
-
-static const struct fsl_pcie_devtype_data imx6qp_data = {
-	.flags = MMDC_FLAG_PROFILE_SEL,
-};
-
-static const struct of_device_id imx_pcie_dt_ids[] = {
-	{ .compatible = "fsl,imx6q-pcie", .data = (void *)&imx6q_data},
-	{ .compatible = "fsl,imx6qp-pcie", .data = (void *)&imx6qp_data},
-	{ /* sentinel */ }
-};
 
 static const struct of_device_id gen_pci_of_match[] = {
         { .compatible = "cdns,pci-cdns-perf" },
@@ -64,18 +53,6 @@ struct pcie_pmu {
         struct fsl_pcie_devtype_data *devtype_data;
 };
 
-/*
-PMU_EVENT_ATTR_STRING(total-cycles, pcie_pmu_total_cycles, "event=0x00")
-PMU_EVENT_ATTR_STRING(busy-cycles, pcie_pmu_busy_cycles, "event=0x01")
-PMU_EVENT_ATTR_STRING(read-accesses, pcie_pmu_read_accesses, "event=0x02")
-PMU_EVENT_ATTR_STRING(write-accesses, pcie_pmu_write_accesses, "event=0x03")
-PMU_EVENT_ATTR_STRING(read-bytes, pcie_pmu_read_bytes, "event=0x04")
-PMU_EVENT_ATTR_STRING(read-bytes.unit, pcie_pmu_read_bytes_unit, "MB");
-PMU_EVENT_ATTR_STRING(read-bytes.scale, pcie_pmu_read_bytes_scale, "0.000001");
-PMU_EVENT_ATTR_STRING(write-bytes, pcie_pmu_write_bytes, "event=0x05")
-PMU_EVENT_ATTR_STRING(write-bytes.unit, pcie_pmu_write_bytes_unit, "MB");
-PMU_EVENT_ATTR_STRING(write-bytes.scale, pcie_pmu_write_bytes_scale, "0.000001");
-*/
 
 PMU_EVENT_ATTR_STRING(TxTLPcount, pcie_pmu_TxTLPcount, "event=0x00")
 PMU_EVENT_ATTR_STRING(TxTLPpayloadCount, pcie_pmu_TxTLPpayloadCount, "event=0x01")
@@ -84,26 +61,6 @@ PMU_EVENT_ATTR_STRING(RxTLPpayloadCount, pcie_pmu_RxTLPpayloadCount, "event=0x03
 PMU_EVENT_ATTR_STRING(LCRCErrorCount, pcie_pmu_LCRCErrorCount, "event=0x04")
 PMU_EVENT_ATTR_STRING(ECCcorrectableErrorCount, pcie_pmu_ECCcorrectableErrorCount, "event=0x05")
 PMU_EVENT_ATTR_STRING(ECCcorrectableErrorCountRegisterforAXIRAMs, pcie_pmu_ECCcorrectableErrorCountRegisterforAXIRAMs, "event=0x06")
-
-struct cpumask file;
-
-/*
-static struct attribute *pcie_pmu_events_attrs[] = {
-        &pcie_pmu_total_cycles.attr.attr,
-        &pcie_pmu_busy_cycles.attr.attr,
-        &pcie_pmu_read_accesses.attr.attr,
-        &pcie_pmu_write_accesses.attr.attr,
-        &pcie_pmu_read_bytes.attr.attr,
-        &pcie_pmu_read_bytes_unit.attr.attr,
-        &pcie_pmu_read_bytes_scale.attr.attr,
-        &pcie_pmu_write_bytes.attr.attr,
-        &pcie_pmu_write_bytes_unit.attr.attr,
-        &pcie_pmu_write_bytes_scale.attr.attr,
-
-	&pcie_pmu_TxTLPcount.attr.attr,
-        NULL,
-};
-*/
 
 static struct attribute *pcie_pmu_events_attrs[] = {
         
@@ -117,35 +74,13 @@ static struct attribute *pcie_pmu_events_attrs[] = {
         NULL,
 };
 
-/*
-static int bitmap_print_to_pagebuf(bool list, char *buf, const unsigned long *maskp,
-			    int nmaskbits)
-{
-	ptrdiff_t len = PTR_ALIGN(buf + PAGE_SIZE - 1, PAGE_SIZE) - buf;
-	int n = 0;
-
-	if (len > 1)
-		n = list ? scnprintf(buf, len, "%*pbl\n", nmaskbits, maskp) :
-			   scnprintf(buf, len, "%*pb\n", nmaskbits, maskp);
-	return n;
-}
-
-static ssize_t
-cpumap_print_to_pagebuf(bool list, char *buf, const struct cpumask *mask)
-{
-	return bitmap_print_to_pagebuf(list, buf, cpumask_bits(mask),
-				      nr_cpu_ids);
-}
-*/
 
 static ssize_t pcie_pmu_cpumask_show(struct device *dev,
                 struct device_attribute *attr, char *buf)
 {
-	ssize_t ret;
         struct pcie_pmu *pmu_pcie = dev_get_drvdata(dev);
 
-       	ret = cpumap_print_to_pagebuf(true, buf, &pmu_pcie->cpu);
-        return ret;
+       	return cpumap_print_to_pagebuf(true, buf, &pmu_pcie->cpu);
 }
 
 
@@ -164,8 +99,6 @@ static struct attribute_group pcie_pmu_cpumask_attr_group = {
 };
 
 
-/////////////////////////////////////////////////////
-
 PMU_FORMAT_ATTR(event, "config:0-63");
 PMU_FORMAT_ATTR(axi_id, "config1:0-63");
 
@@ -176,8 +109,6 @@ static struct attribute *pcie_pmu_format_attrs[] = {
         NULL,
 };
 
-
-///////////////////////////////////////////////////////
 static struct attribute_group pcie_pmu_events_attr_group = {
         .name = "events",
         .attrs = pcie_pmu_events_attrs,
@@ -187,7 +118,6 @@ static struct attribute_group pcie_pmu_format_attr_group = {
         .name = "format",
         .attrs = pcie_pmu_format_attrs,
 };
-/////////////////////////////////////////////////////////////////
 
 static const struct attribute_group *attr_groups[] = {
         &pcie_pmu_events_attr_group,
@@ -200,27 +130,10 @@ static const struct attribute_group *attr_groups[] = {
 
 #define to_pcie_pmu(p) container_of(p, struct pcie_pmu, pmu)
 
-static int my_readl(void __iomem *reg){
+static int inline my_readl(void __iomem *reg){
 	return *(volatile uint32_t *)reg;
 
 }
-
-#define TOTAL_CYCLES		0x0
-#define BUSY_CYCLES		0x1
-#define READ_ACCESSES		0x2
-#define WRITE_ACCESSES		0x3
-#define READ_BYTES		0x4
-#define WRITE_BYTES		0x5
-
-#define MMDC_MADPCR0	0x410
-#define MMDC_MADPCR1	0x414
-#define MMDC_MADPSR0	0x418
-#define MMDC_MADPSR1	0x41C
-#define MMDC_MADPSR2	0x420
-#define MMDC_MADPSR3	0x424
-#define MMDC_MADPSR4	0x428
-#define MMDC_MADPSR5	0x42C
-
 
 static bool pcie_pmu_group_is_valid(struct perf_event *event)
 {
@@ -288,29 +201,23 @@ static u32 pcie_pmu_read_counter(struct pcie_pmu *pmu_pcie, int cfg)
 	pcie_base = 0xfb000000;
 
 	switch (cfg) {
-	case TOTAL_CYCLES:
-		//reg = pcie_base + MMDC_MADPSR0;
-		reg = pcie_base + 0x28 + 0x100000;
+	case TX_TLP_COUNT_EVENT:
+		reg = pcie_base | TX_TLP_COUNT_REG | CDNS_PCIE_LOCAL_MGMT_ADDR;
 		break;
-	case BUSY_CYCLES:
-		//reg = pcie_base + MMDC_MADPSR1;
-		reg = pcie_base + 0x2C + 0x100000;
+	case TX_TLP_PAYLOAD_COUNT_EVENT:
+		reg = pcie_base | TX_TLP_PAYLOAD_COUNT_REG | CDNS_PCIE_LOCAL_MGMT_ADDR;
 		break;
-	case READ_ACCESSES:
-		//reg = pcie_base + MMDC_MADPSR2;
-		reg = pcie_base + 0x30 + 0x100000;
+	case RX_TLP_COUNT_EVENT:
+		reg = pcie_base | RX_TLP_COUNT_REG | CDNS_PCIE_LOCAL_MGMT_ADDR;
 		break;
-	case WRITE_ACCESSES:
-		//reg = pcie_base + MMDC_MADPSR3;
-		reg = pcie_base + 0x34 + 0x100000;
+	case RX_TLP_PAYLOAD_COUNT_EVENT:
+		reg = pcie_base | RX_TLP_PAYLOAD_COUNT_REG | CDNS_PCIE_LOCAL_MGMT_ADDR;
 		break;
-	case READ_BYTES:
-		//reg = pcie_base + MMDC_MADPSR4;
-		reg = pcie_base + 0x214 + 0x100000;
+	case LCRC_ERROR_COUNT_EVENT:
+		reg = pcie_base | LCRC_ERROR_COUNT_REG | CDNS_PCIE_LOCAL_MGMT_ADDR;
 		break;
-	case WRITE_BYTES:
-		//reg = pcie_base + MMDC_MADPSR5;
-		reg = pcie_base + 0x218 + 0x100000;
+	case ECC_CORRECTABLE_ERROR_COUNT_EVENT:
+		reg = pcie_base | ECC_CORRECTABLE_ERROR_COUNT_REG | CDNS_PCIE_LOCAL_MGMT_ADDR;
 		break;
 	default:
 		return WARN_ONCE(1,
@@ -337,23 +244,18 @@ static int pcie_pmu_event_init(struct perf_event *event)
 	struct pcie_pmu *pmu_pcie = to_pcie_pmu(event->pmu);
 	int cfg = event->attr.config;
 
-	//printk("%d - %d\n", event->attr.type,  event->pmu->type);
-
 	//pcie_pmu_event_display(event);
 /*
 	if (event->attr.type != event->pmu->type)
 		return -ENOENT;
-	printk("1\n");
 	if (is_sampling_event(event) || event->attach_state & PERF_ATTACH_TASK)
 		return -EOPNOTSUPP;
 
-	printk("2\n");
 	if (event->cpu < 0) {
 		printk("Can't provide per-task data!\n");
 		return -EOPNOTSUPP;
 	}
 
-	printk("3\n");
 /*
 	if (event->attr.exclude_user		||
 			event->attr.exclude_kernel	||
@@ -364,17 +266,13 @@ static int pcie_pmu_event_init(struct perf_event *event)
 			event->attr.sample_period)
 		return -EINVAL;
 */
-	printk("4\n");
 	if (cfg < 0 || cfg >= PCIE_NUM_COUNTERS)
 		return -EINVAL;
 
-	printk("5\n");
 	if (!pcie_pmu_group_is_valid(event))
 		return -EINVAL;
 
-	printk("6\n");
 	event->cpu = cpumask_first(&pmu_pcie->cpu);
-	printk("cdns sucess pcie_pmu_event_init %d\n",  event->cpu);
 #endif
 	return 0;
 
